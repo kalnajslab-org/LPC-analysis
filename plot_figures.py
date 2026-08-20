@@ -5,6 +5,9 @@ larger than 300, 500, 1000, and 2000 nm.
 
 Figure 2: differential size distribution (dN/dD), averaged over each
 episodic measurement, one subplot per measurement in a dynamic grid.
+
+Figure 3: housekeeping time series (temperatures, voltages, currents,
+flow), one panel per group, stacked vertically.
 """
 
 from itertools import groupby
@@ -20,6 +23,7 @@ from read_lpcopc import (
     add_measurement_id,
     add_sample_volume,
     fill_position,
+    flag_bad_flow,
     load_lpcopc,
     load_lpcrs41,
     matching_rs41_path,
@@ -40,6 +44,24 @@ COLORS = {
     1000: "#1baf7a",  # aqua
     2000: "#eda100",  # yellow
 }
+
+# Same palette, as an ordered list for figures with an arbitrary number of
+# series (assign in this fixed order — never cycle/re-sort by rank).
+CATEGORICAL_COLORS = [
+    "#2a78d6",  # 1 blue
+    "#eb6834",  # 2 orange
+    "#1baf7a",  # 3 aqua
+    "#eda100",  # 4 yellow
+    "#e87ba4",  # 5 magenta
+    "#008300",  # 6 green
+    "#4a3aa7",  # 7 violet
+    "#e34948",  # 8 red
+]
+
+# Reference conditions the flow meter reports flow_SLPM at — must match
+# add_ambient_volume's defaults in read_lpcopc.py.
+P_STD_MB = 1013.0
+T_STD_K = 295.0
 
 INK_PRIMARY = "#0b0b0b"
 INK_SECONDARY = "#52514e"
@@ -383,9 +405,148 @@ def plot_figure2(df, save_path: Path = None, gap_break_s: float = GAP_BREAK_S):
     return results
 
 
+def ambient_flow_slpm(df, p_std_mb: float = P_STD_MB, t_std_k: float = T_STD_K) -> "pd.Series":
+    """Ambient-equivalent volumetric flow rate (L/min): flow_SLPM (at the
+    flow meter's standard reference conditions) converted to the
+    balloon's local pressure/temperature via the ideal gas law — the same
+    factor add_ambient_volume applies to sample_volume_L, but applied to
+    the flow rate directly rather than an already-integrated volume, so
+    it isn't affected by that column's hibernation-gap/startup masking.
+
+    Requires pres_mb and air_temp_degC (see merge_rs41 in read_lpcopc.py).
+    """
+    t_ambient_k = df["air_temp_degC"] + 273.15
+    return df["flow_SLPM"] * (p_std_mb / df["pres_mb"]) * (t_ambient_k / t_std_k)
+
+
+def plot_figure3(df, save_path: Path = None):
+    """Housekeeping time series: temperatures, voltages, currents, and
+    flow (standard vs. ambient-equivalent), one panel per group."""
+    gap_mask = (df["epoch"].diff() > GAP_BREAK_S).to_numpy()
+
+    panels = [
+        (
+            "Temperatures",
+            "Temperature (°C)",
+            [
+                ("pump1_T_degC", "pump 1"),
+                ("pump2_T_degC", "pump 2"),
+                ("laser_T_degC", "laser"),
+                ("pcb_T_degC", "PCB"),
+                ("inlet_T_degC", "inlet"),
+            ],
+        ),
+        (
+            "Voltages",
+            "Voltage (V)",
+            [
+                ("pha_12V_V", "PHA 12V"),
+                ("pha_3V3_V", "PHA 3.3V"),
+                ("cpu_V_V", "CPU"),
+                ("input_V_V", "input"),
+            ],
+        ),
+        (
+            "Currents",
+            "Current (mA)",
+            [
+                ("pump1_I_mA", "pump 1"),
+                ("pump2_I_mA", "pump 2"),
+                ("pha_I_mA", "PHA"),
+            ],
+        ),
+    ]
+
+    fig, axes = plt.subplots(
+        4,
+        1,
+        figsize=(10, 13),
+        facecolor=SURFACE,
+        sharex=True,
+        gridspec_kw={"hspace": 0.45},
+    )
+
+    for ax, (title, ylabel, series) in zip(axes[:3], panels):
+        ax.set_facecolor(SURFACE)
+        for i, (col, label) in enumerate(series):
+            x, y = break_on_gaps(df["epoch_utc"], df[col], gap_mask)
+            ax.plot(
+                x,
+                y,
+                color=CATEGORICAL_COLORS[i],
+                linewidth=2,
+                solid_capstyle="round",
+                label=label,
+            )
+        ax.set_ylabel(ylabel, color=INK_PRIMARY, fontsize=12, fontweight="bold")
+        # pad clears the panel's own top spine and (with the increased
+        # hspace above) the previous panel's bottom spine, which
+        # otherwise cuts through the title's letterforms.
+        ax.set_title(title, color=INK_PRIMARY, fontsize=13, fontweight="bold", loc="left", pad=10)
+        ax.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
+        ax.grid(False, axis="x")
+        _style_spines(ax)
+        _style_ticks(ax)
+        legend = ax.legend(
+            frameon=True, labelcolor=INK_PRIMARY, fontsize=9, ncols=len(series), loc="upper left"
+        )
+        legend.get_frame().set_edgecolor(BASELINE)
+
+    # --- Flow: standard (as reported) vs. ambient-equivalent -------------
+    ax_flow = axes[3]
+    ax_flow.set_facecolor(SURFACE)
+
+    x_std, y_std = break_on_gaps(df["epoch_utc"], df["flow_SLPM"], gap_mask)
+    ax_flow.plot(
+        x_std,
+        y_std,
+        color=CATEGORICAL_COLORS[0],
+        linewidth=2,
+        solid_capstyle="round",
+        label="standard (SLPM)",
+    )
+
+    x_amb, y_amb = break_on_gaps(df["epoch_utc"], ambient_flow_slpm(df), gap_mask)
+    ax_flow.plot(
+        x_amb,
+        y_amb,
+        color=CATEGORICAL_COLORS[1],
+        linewidth=2,
+        solid_capstyle="round",
+        label="ambient (L/min)",
+    )
+
+    ax_flow.set_ylabel("Flow (L/min)", color=INK_PRIMARY, fontsize=12, fontweight="bold")
+    ax_flow.set_title("Flow", color=INK_PRIMARY, fontsize=13, fontweight="bold", loc="left", pad=10)
+    ax_flow.set_xlabel("Time (UTC)", color=INK_PRIMARY, fontsize=12, fontweight="bold")
+    ax_flow.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    for tick_label in ax_flow.get_xticklabels():
+        tick_label.set_rotation(0)
+        tick_label.set_horizontalalignment("center")
+
+    ax_flow.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
+    ax_flow.grid(False, axis="x")
+    _style_spines(ax_flow)
+    _style_ticks(ax_flow)
+    legend = ax_flow.legend(
+        frameon=True, labelcolor=INK_PRIMARY, fontsize=9, ncols=2, loc="upper left"
+    )
+    legend.get_frame().set_edgecolor(BASELINE)
+
+    fig.suptitle("Instrument housekeeping", color=INK_PRIMARY, fontsize=15, fontweight="bold")
+    fig.align_ylabels(axes)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, facecolor=SURFACE)
+
+    return fig, axes
+
+
 if __name__ == "__main__":
     df = load_lpcopc()
     df = fill_position(df)
+    df = flag_bad_flow(df)
     df = add_sample_volume(df)
     df = add_measurement_id(df)
 
@@ -402,5 +563,9 @@ if __name__ == "__main__":
     fig2_path = OUT_DIR / "figure2_differential_distribution.png"
     for _fig, _axes, saved_path in plot_figure2(df, save_path=fig2_path):
         print(f"Saved {saved_path}")
+
+    fig3_path = OUT_DIR / "figure3_housekeeping.png"
+    plot_figure3(df, save_path=fig3_path)
+    print(f"Saved {fig3_path}")
 
     plt.show()  # open each figure in its own interactive window
