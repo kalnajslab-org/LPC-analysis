@@ -9,7 +9,7 @@ quicklook figures.
 | File | Purpose |
 |---|---|
 | [read_lpcopc.py](read_lpcopc.py) | Load an `lpcopc-N.csv` file, merge in its paired `lpcrs41-N.csv`, and derive the columns needed for concentration calculations. Saves the result to NetCDF. |
-| [plot_figures.py](plot_figures.py) | Build two quicklook figures from the processed data: a cumulative-concentration time series and a per-measurement differential size distribution. |
+| [plot_figures.py](plot_figures.py) | Build three quicklook figures from the processed data: a cumulative-concentration time series, a per-measurement differential size distribution, and an instrument housekeeping time series. |
 
 ## Requirements
 
@@ -23,7 +23,7 @@ netCDF4
 
 ## Input data
 
-Data lives in `lpc.csv/`, as pairs of CSV files sharing a run number, e.g.:
+Sample Data lives in `Example Files.csv/`, as pairs of CSV files sharing a run number, e.g.:
 
 - `lpcopc-2.csv` — OPC housekeeping and aerosol bin counts
 - `lpcrs41-2.csv` — RS41 radiosonde pressure/temperature/humidity, sampled ~1 Hz
@@ -34,7 +34,7 @@ Both files share the same layout: a header row, a units row (e.g. `[mA]`,
 The OPC reports 32 aerosol bin-count columns, `hg_*` and `lg_*` (high-gain /
 low-gain channels), named by each bin's *upper* diameter edge in nm (e.g.
 `hg_300` = the bin with an upper edge at 300 nm). The instrument samples
-**episodically**: batches of 30-60 rows at a ~4 s cadence, separated by
+**episodically**: batches of 10-60 rows at a ~2-10s cadence, separated by
 multi-minute hibernation gaps.
 
 ## Processing pipeline (`read_lpcopc.py`)
@@ -44,12 +44,13 @@ in order — each takes and returns a DataFrame:
 
 1. **`load_lpcopc(csv_path)`** — read the OPC CSV, parse `epoch_utc` as a UTC datetime.
 2. **`fill_position(df)`** — forward-fill `lat_deg` / `lon_deg` / `alt_m`, which the OPC only reports on periodic GPS updates.
-3. **`add_sample_volume(df, max_dt_s=10.0, min_dt_s=2.0)`** — add `sample_volume_L`, the volume of air sampled by each row (`flow_SLPM x dt_minutes`, `dt` from consecutive `epoch` values). Rows whose `dt` is too long (a hibernation gap) or too short (the startup-transient rows right after waking, which carry an unreasonably high count relative to their short interval) are masked to `NaN` rather than estimated.
-4. **`add_measurement_id(df, gap_break_s=10.0)`** — add `measurement_id`, an integer identifying which episodic batch each row belongs to (increments whenever the gap since the previous row exceeds `gap_break_s`).
-5. **`matching_rs41_path(opc_csv_path)`** / **`load_lpcrs41(csv_path)`** — locate and load the paired RS41 file.
-6. **`merge_rs41(df, df_rs41)`** — attach the nearest-in-time `pres_mb`, `air_temp_degC`, `rs41_rh_percent`, and `wv_mixing_ratio_ppmv` to each OPC row (`pd.merge_asof`, nearest match on `epoch`). RS41 rows marked `valid == False` (zero-filled placeholders) are excluded before matching.
-7. **`add_ambient_volume(df, p_std_mb=1013.0, t_std_k=295.0)`** — convert `sample_volume_L` from the flow meter's standard reference conditions to the actual (ambient) volume sampled, via the ideal gas law: `V_ambient = V_standard * (P_std / P_ambient) * (T_ambient / T_std)`. Requires step 6 to have run first.
-8. **`save_netcdf(df, csv_path)`** — write the processed DataFrame to `lpcopc-N.nc` (indexed by `epoch`; the tz-aware `epoch_utc` column is dropped since NetCDF/CF datetimes can't carry a UTC offset — `epoch` already encodes the same instant unambiguously).
+3. **`flag_bad_flow(df, max_good_slpm=30.0)`** — add a `flow_bad` boolean column flagging rows where `flow_SLPM` exceeds `max_good_slpm`: the flow meter is not expected to report flows that high, so a reading above the threshold indicates a sensor fault rather than a real flow change. `add_sample_volume` calls this automatically if it hasn't been run yet.
+4. **`add_sample_volume(df, max_dt_s=10.0, min_dt_s=2.0, max_good_slpm=30.0)`** — add `sample_volume_L`, the volume of air sampled by each row (`flow x dt_minutes`, `dt` from consecutive `epoch` values). Rows flagged `flow_bad` use the last known-good flow reading (forward-filled) instead of the faulty value. Rows whose `dt` is too long (a hibernation gap) or too short (the startup-transient rows right after waking, which carry an unreasonably high count relative to their short interval) are masked to `NaN` rather than estimated.
+5. **`add_measurement_id(df, gap_break_s=10.0)`** — add `measurement_id`, an integer identifying which episodic batch each row belongs to (increments whenever the gap since the previous row exceeds `gap_break_s`).
+6. **`matching_rs41_path(opc_csv_path)`** / **`load_lpcrs41(csv_path)`** — locate and load the paired RS41 file.
+7. **`merge_rs41(df, df_rs41)`** — attach the nearest-in-time `pres_mb`, `air_temp_degC`, `rs41_rh_percent`, and `wv_mixing_ratio_ppmv` to each OPC row (`pd.merge_asof`, nearest match on `epoch`). RS41 rows marked `valid == False` (zero-filled placeholders) are excluded before matching.
+8. **`add_ambient_volume(df, p_std_mb=1013.0, t_std_k=295.0)`** — convert `sample_volume_L` from the flow meter's standard reference conditions to the actual (ambient) volume sampled, via the ideal gas law: `V_ambient = V_standard * (P_std / P_ambient) * (T_ambient / T_std)`. Requires step 7 to have run first.
+9. **`save_netcdf(df, csv_path)`** — write the processed DataFrame to `lpcopc-N.nc` (indexed by `epoch`; the tz-aware `epoch_utc` column is dropped since NetCDF/CF datetimes can't carry a UTC offset — `epoch` already encodes the same instant unambiguously). This also carries `flow_bad` through to the saved file.
 
 Aerosol concentration (counts per volume) for any bin is then just
 `df["hg_300"] / df["sample_volume_L"]` (liters) or divide by
@@ -102,18 +103,39 @@ second bin's width (no lower edge is recorded), and the trailing duplicate
 column (`lg_24000_1`, sharing `lg_24000`'s edge) is dropped since its width
 is undefined.
 
+### Figure 3 — instrument housekeeping
+
+`plot_figure3(df, save_path=...)` → `figures/figure3_housekeeping.png`
+
+Four vertically stacked panels sharing a time axis:
+
+- **Temperatures** — pump 1, pump 2, laser, PCB, inlet (°C)
+- **Voltages** — PHA 12V, PHA 3.3V, CPU, input (V)
+- **Currents** — pump 1, pump 2, PHA (mA)
+- **Flow** — `flow_SLPM` as reported (standard conditions) alongside its
+  ambient-equivalent volumetric rate (`ambient_flow_slpm`), which applies
+  the same ideal-gas correction as `add_ambient_volume` directly to the
+  flow rate rather than an already-integrated volume, so it isn't affected
+  by that column's hibernation-gap/startup masking.
+
+Like figure 1, every line breaks at hibernation gaps instead of drawing
+across them. Series colors are assigned in the dataviz reference palette's
+fixed order (`CATEGORICAL_COLORS`), which supports up to 5 series per
+panel (this figure's largest group, Temperatures, uses exactly 5).
+
 ## Example
 
 ```python
 from read_lpcopc import (
-    load_lpcopc, fill_position, add_sample_volume, add_measurement_id,
+    load_lpcopc, fill_position, flag_bad_flow, add_sample_volume, add_measurement_id,
     matching_rs41_path, load_lpcrs41, merge_rs41, add_ambient_volume,
     save_netcdf, CSV_PATH,
 )
-from plot_figures import plot_figure1, plot_figure2
+from plot_figures import plot_figure1, plot_figure2, plot_figure3
 
 df = load_lpcopc(CSV_PATH)
 df = fill_position(df)
+df = flag_bad_flow(df)
 df = add_sample_volume(df)
 df = add_measurement_id(df)
 
@@ -125,4 +147,5 @@ save_netcdf(df, CSV_PATH)
 
 plot_figure1(df, save_path="figure1.png")
 plot_figure2(df, save_path="figure2.png")
+plot_figure3(df, save_path="figure3.png")
 ```

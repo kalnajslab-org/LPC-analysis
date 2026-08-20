@@ -1,6 +1,6 @@
 """Read an LPC OPC housekeeping/data CSV file into a pandas DataFrame.
 
-The CSV files (e.g. lpc.csv/lpcopc-2.csv) have the format:
+The CSV files have the format:
     row 1: column names
     row 2: units for each column, e.g. "[mA]", "[deg]"
     row 3+: data
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-CSV_PATH = Path(__file__).parent / "lpc.csv" / "lpcopc-2.csv"
+CSV_PATH = Path(__file__).parent / "Example Files.csv" / "lpcopc-2.csv"
 
 
 def load_lpcopc(csv_path: Path = CSV_PATH) -> pd.DataFrame:
@@ -80,8 +80,20 @@ def fill_position(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def flag_bad_flow(df: pd.DataFrame, max_good_slpm: float = 30.0) -> pd.DataFrame:
+    """Add a "flow_bad" boolean column flagging rows where flow_SLPM
+    exceeds max_good_slpm. The flow meter is not expected to report
+    flows this high — a reading above the threshold indicates a flow
+    meter fault, not a real flow change."""
+    df["flow_bad"] = df["flow_SLPM"] > max_good_slpm
+    return df
+
+
 def add_sample_volume(
-    df: pd.DataFrame, max_dt_s: float = 10.0, min_dt_s: float = 2.0
+    df: pd.DataFrame,
+    max_dt_s: float = 10.0,
+    min_dt_s: float = 2.0,
+    max_good_slpm: float = 30.0,
 ) -> pd.DataFrame:
     """Add a "sample_volume_L" column: the volume of air (liters) sampled
     for each row, so aerosol bin counts (hg_xxxx, lg_xxxx) can later be
@@ -89,14 +101,18 @@ def add_sample_volume(
 
     Each row's counts were accumulated since the previous row, over
     ``dt = epoch[i] - epoch[i-1]`` seconds. Sampled volume for that
-    interval is ``flow_SLPM * dt_minutes`` liters (flow is already in
+    interval is ``flow * dt_minutes`` liters (flow is already in
     standard liters per minute). The first row has no preceding row to
     diff against, so its sample_volume_L is NaN.
 
+    flow_SLPM occasionally faults to a reading above max_good_slpm (see
+    flag_bad_flow); rows where that happens use the last known-good flow
+    reading (forward-filled) instead of the faulty value.
+
     The instrument samples episodically: 30-60 samples at the normal
     ~4s cadence, then it hibernates for several minutes before waking for
-    the next batch. Two artifacts show up around each hibernation gap,
-    both excluded (masked NaN) rather than estimated:
+    the next batch. Two more artifacts show up around each hibernation
+    gap, both excluded (masked NaN) rather than estimated:
 
     - The row after the gap has dt of several minutes, but its counts
       are a normal single-cycle reading, not counts accumulated over the
@@ -108,8 +124,13 @@ def add_sample_volume(
       by their tiny volume produces an implausible concentration spike.
       Any row with dt < min_dt_s is masked.
     """
+    if "flow_bad" not in df.columns:
+        df = flag_bad_flow(df, max_good_slpm=max_good_slpm)
+
+    good_flow = df["flow_SLPM"].where(~df["flow_bad"]).ffill()
+
     dt_s = df["epoch"].diff()
-    volume_L = df["flow_SLPM"] * (dt_s / 60.0) 
+    volume_L = good_flow * (dt_s / 60.0)
     volume_L = volume_L.mask((dt_s > max_dt_s) | (dt_s < min_dt_s))
     df["sample_volume_L"] = volume_L.replace(0, pd.NA)
 
@@ -170,6 +191,7 @@ if __name__ == "__main__":
     print(df.dtypes)
 
     df = fill_position(df)
+    df = flag_bad_flow(df)
     df = add_sample_volume(df)
     df = add_measurement_id(df)
 
