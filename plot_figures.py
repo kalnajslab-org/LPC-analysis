@@ -140,8 +140,8 @@ def _style_spines(ax):
         spine.set_linewidth(1.8)
 
 
-def _style_ticks(ax, axis="both", color=INK_PRIMARY):
-    """Heavy, bold tick chrome on the given axis ('x', 'y', or 'both')."""
+def _style_ticks(ax, axis="both", color=INK_PRIMARY, fontweight="bold"):
+    """Heavy tick chrome on the given axis ('x', 'y', or 'both')."""
     ax.tick_params(axis=axis, colors=color, width=1.8, length=7, labelsize=11)
     labels = []
     if axis in ("x", "both"):
@@ -149,7 +149,7 @@ def _style_ticks(ax, axis="both", color=INK_PRIMARY):
     if axis in ("y", "both"):
         labels += ax.get_yticklabels()
     for tick_label in labels:
-        tick_label.set_fontweight("bold")
+        tick_label.set_fontweight(fontweight)
 
 
 def plot_figure1(df, save_path: Path = None):
@@ -188,15 +188,12 @@ def plot_figure1(df, save_path: Path = None):
         "Cumulative concentration (# cm$^{-3}$)",
         color=INK_PRIMARY,
         fontsize=12,
-        fontweight="bold",
+        fontweight="normal",
     )
-    ax1.set_title(
-        "Cumulative aerosol concentration", color=INK_PRIMARY, fontsize=14, fontweight="bold"
-    )
-    ax1.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
-    ax1.grid(False, axis="x")
+    ax1.grid(True, which="major", color=GRIDLINE, linewidth=1.2)
     _style_spines(ax1)
-    _style_ticks(ax1)
+    _style_ticks(ax1, axis="x")
+    _style_ticks(ax1, axis="y", fontweight="normal")
 
     legend = ax1.legend(
         #title="Diameter threshold",
@@ -211,31 +208,30 @@ def plot_figure1(df, save_path: Path = None):
 
     x_temp, y_temp = break_on_gaps(df["epoch_utc"], df["air_temp_degC"], gap_mask)
     ax2.plot(x_temp, y_temp, color=temp_color, linewidth=2, solid_capstyle="round")
-    ax2.set_ylabel("Temperature (°C)", color=temp_color, fontsize=12, fontweight="bold")
+    ax2.set_ylabel("Temperature (°C)", color=temp_color, fontsize=12, fontweight="normal")
 
     ax2_rh = ax2.twinx()
     x_rh, y_rh = break_on_gaps(df["epoch_utc"], df["rs41_rh_percent"], gap_mask)
     ax2_rh.plot(x_rh, y_rh, color=rh_color, linewidth=2, solid_capstyle="round")
-    ax2_rh.set_ylabel("Relative humidity (%)", color=rh_color, fontsize=12, fontweight="bold")
+    ax2_rh.set_ylabel("Relative humidity (%)", color=rh_color, fontsize=12, fontweight="normal")
 
-    ax2.set_xlabel("Time (UTC)", color=INK_PRIMARY, fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Time (UTC)", color=INK_PRIMARY, fontsize=12, fontweight="normal")
     ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     for tick_label in ax2.get_xticklabels():
         tick_label.set_rotation(0)
         tick_label.set_horizontalalignment("center")
 
-    ax2.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
-    ax2.grid(False, axis="x")
+    ax2.grid(True, which="major", color=GRIDLINE, linewidth=1.2)
     _style_spines(ax2)
-    _style_ticks(ax2, axis="x", color=INK_PRIMARY)
-    _style_ticks(ax2, axis="y", color=temp_color)
+    _style_ticks(ax2, axis="x", color=INK_PRIMARY,fontweight="normal")
+    _style_ticks(ax2, axis="y", color=temp_color, fontweight="normal")
 
     # twinx doesn't own its own spines, so style them separately, in the
     # RH line's color for consistency (a dual-axis mitigation: each
     # axis's ink matches the series it measures instead of a legend).
     ax2_rh.spines["right"].set_color(BASELINE)
     ax2_rh.spines["right"].set_linewidth(1.8)
-    _style_ticks(ax2_rh, axis="y", color=rh_color)
+    _style_ticks(ax2_rh, axis="y", color=rh_color, fontweight="normal")
 
     fig.align_ylabels([ax1, ax2])
     fig.tight_layout()
@@ -291,7 +287,7 @@ def _page_save_path(save_path: Path, label: str) -> Path:
     return save_path.with_name(f"{save_path.stem}_{label}{save_path.suffix}")
 
 
-def _plot_distribution_page(df, cols, left_edges, widths, measurement_ids, title):
+def _plot_distribution_page(df, cols, left_edges, widths, measurement_ids):
     valid = df["sample_volume_L"].notna()
     nrows, ncols = _grid_shape(len(measurement_ids))
 
@@ -350,16 +346,15 @@ def _plot_distribution_page(df, cols, left_edges, widths, measurement_ids, title
         # row/column — force labels on every populated panel instead.
         ax.tick_params(colors=INK_MUTED, labelsize=8, labelbottom=True, labelleft=True)
 
-    fig.supxlabel("Diameter (nm)", color=INK_SECONDARY, fontsize=12, fontweight="bold")
+    fig.supxlabel("Diameter (nm)", color=INK_SECONDARY, fontsize=12, fontweight="normal")
     fig.supylabel(
         "dN/dD (# cm$^{-3}$ nm$^{-1}$)",
         color=INK_SECONDARY,
         fontsize=12,
-        fontweight="bold",
+        fontweight="normal",
     )
-    fig.suptitle(title, color=INK_PRIMARY, fontsize=15, fontweight="bold")
 
-    fig.tight_layout(rect=[0.02, 0.02, 1, 0.96])
+    fig.tight_layout(rect=[0.02, 0.02, 1, 1])
 
     return fig, axes
 
@@ -388,12 +383,8 @@ def plot_figure2(df, save_path: Path = None, gap_break_s: float = GAP_BREAK_S):
 
     results = []
     for label, page_measurement_ids in pages:
-        title = "Differential size distribution by measurement"
-        if label is not None:
-            title += f" — {label.replace('_', ' ')}"
-
         fig, axes = _plot_distribution_page(
-            df, cols, left_edges, widths, page_measurement_ids, title
+            df, cols, left_edges, widths, page_measurement_ids
         )
 
         page_path = _page_save_path(save_path, label) if save_path else None
@@ -457,16 +448,19 @@ def plot_figure3(df, save_path: Path = None):
         ),
     ]
 
+    # hspace is set via subplots_adjust after tight_layout below, not via
+    # gridspec_kw here — matplotlib's tight_layout can't reconcile a grid
+    # spacing fixed at axes-creation time and silently falls back to
+    # large default margins (a wide blank band above the top panel).
     fig, axes = plt.subplots(
         4,
         1,
-        figsize=(10, 13),
+        figsize=(10, 10),
         facecolor=SURFACE,
         sharex=True,
-        gridspec_kw={"hspace": 0.45},
     )
 
-    for ax, (title, ylabel, series) in zip(axes[:3], panels):
+    for ax, (_title, ylabel, series) in zip(axes[:3], panels):
         ax.set_facecolor(SURFACE)
         for i, (col, label) in enumerate(series):
             x, y = break_on_gaps(df["epoch_utc"], df[col], gap_mask)
@@ -478,15 +472,11 @@ def plot_figure3(df, save_path: Path = None):
                 solid_capstyle="round",
                 label=label,
             )
-        ax.set_ylabel(ylabel, color=INK_PRIMARY, fontsize=12, fontweight="bold")
-        # pad clears the panel's own top spine and (with the increased
-        # hspace above) the previous panel's bottom spine, which
-        # otherwise cuts through the title's letterforms.
-        ax.set_title(title, color=INK_PRIMARY, fontsize=13, fontweight="bold", loc="left", pad=10)
-        ax.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
-        ax.grid(False, axis="x")
+        ax.set_ylabel(ylabel, color=INK_PRIMARY, fontsize=12, fontweight="normal")
+        ax.grid(True, which="major", color=GRIDLINE, linewidth=1.2)
         _style_spines(ax)
-        _style_ticks(ax)
+        _style_ticks(ax, axis="x")
+        _style_ticks(ax, axis="y", fontweight="normal")
         legend = ax.legend(
             frameon=True, labelcolor=INK_PRIMARY, fontsize=9, ncols=len(series), loc="upper left"
         )
@@ -516,26 +506,25 @@ def plot_figure3(df, save_path: Path = None):
         label="ambient (L/min)",
     )
 
-    ax_flow.set_ylabel("Flow (L/min)", color=INK_PRIMARY, fontsize=12, fontweight="bold")
-    ax_flow.set_title("Flow", color=INK_PRIMARY, fontsize=13, fontweight="bold", loc="left", pad=10)
-    ax_flow.set_xlabel("Time (UTC)", color=INK_PRIMARY, fontsize=12, fontweight="bold")
+    ax_flow.set_ylabel("Flow (L/min)", color=INK_PRIMARY, fontsize=12, fontweight="normal")
+    ax_flow.set_xlabel("Time (UTC)", color=INK_PRIMARY, fontsize=12, fontweight="normal")
     ax_flow.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     for tick_label in ax_flow.get_xticklabels():
         tick_label.set_rotation(0)
         tick_label.set_horizontalalignment("center")
 
-    ax_flow.grid(True, which="major", axis="y", color=GRIDLINE, linewidth=1.2)
-    ax_flow.grid(False, axis="x")
+    ax_flow.grid(True, which="major", color=GRIDLINE, linewidth=1.2)
     _style_spines(ax_flow)
-    _style_ticks(ax_flow)
+    _style_ticks(ax_flow, axis="x",fontweight="normal")
+    _style_ticks(ax_flow, axis="y", fontweight="normal")
     legend = ax_flow.legend(
         frameon=True, labelcolor=INK_PRIMARY, fontsize=9, ncols=2, loc="upper left"
     )
     legend.get_frame().set_edgecolor(BASELINE)
 
-    fig.suptitle("Instrument housekeeping", color=INK_PRIMARY, fontsize=15, fontweight="bold")
     fig.align_ylabels(axes)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.tight_layout(rect=[0, 0, 1, 1])
+    fig.subplots_adjust(hspace=0.15)
 
     if save_path:
         fig.savefig(save_path, dpi=150, facecolor=SURFACE)
