@@ -7,7 +7,7 @@ Figure 2: differential size distribution (dN/dD), averaged over each
 episodic measurement, one subplot per measurement in a dynamic grid.
 
 Figure 3: housekeeping time series (temperatures, voltages, currents,
-flow), one panel per group, stacked vertically.
+pump PWM, flow), one panel per group, stacked vertically.
 """
 
 from itertools import groupby
@@ -317,6 +317,18 @@ def _plot_distribution_page(df, cols, left_edges, widths, measurement_ids):
         total_volume_cm3 = measurement["sample_volume_L"].sum() * 1000.0
         dN_dD = total_counts / (total_volume_cm3 * widths)
 
+        # Row-to-row spread within the measurement: each row's own dN/dD
+        # (not the totals-based average above), then the std of those
+        # per-row values across the measurement, shown as error bars.
+        row_volume_cm3 = measurement["sample_volume_L"].to_numpy(dtype=float) * 1000.0
+        row_counts = measurement[cols].to_numpy(dtype=float)
+        row_dN_dD = row_counts / row_volume_cm3[:, None] / widths[None, :]
+        dN_dD_std = (
+            np.std(row_dN_dD, axis=0, ddof=1)
+            if len(measurement) > 1
+            else np.full_like(dN_dD, np.nan)
+        )
+
         ax.bar(
             left_edges,
             dN_dD,
@@ -325,10 +337,13 @@ def _plot_distribution_page(df, cols, left_edges, widths, measurement_ids):
             color=COLORS[300],
             edgecolor=SURFACE,
             linewidth=0.3,
+            yerr=dN_dD_std,
+            error_kw=dict(ecolor=INK_PRIMARY, elinewidth=1, capsize=2, alpha=0.6),
         )
 
         ax.set_xscale("log")
         ax.set_yscale("log")
+        ax.set_xlim(300, 30000)
 
         start_time = measurement["epoch_utc"].iloc[0]
         ax.set_title(
@@ -411,8 +426,8 @@ def ambient_flow_slpm(df, p_std_mb: float = P_STD_MB, t_std_k: float = T_STD_K) 
 
 
 def plot_figure3(df, save_path: Path = None):
-    """Housekeeping time series: temperatures, voltages, currents, and
-    flow (standard vs. ambient-equivalent), one panel per group."""
+    """Housekeeping time series: temperatures, voltages, currents, pump
+    PWM, and flow (standard vs. ambient-equivalent), one panel per group."""
     gap_mask = (df["epoch"].diff() > GAP_BREAK_S).to_numpy()
 
     panels = [
@@ -446,6 +461,14 @@ def plot_figure3(df, save_path: Path = None):
                 ("pha_I_mA", "PHA"),
             ],
         ),
+        (
+            "Pump PWM",
+            "Pump PWM (#)",
+            [
+                ("pump1_PWM", "pump 1"),
+                ("pump2_PWM", "pump 2"),
+            ],
+        ),
     ]
 
     # hspace is set via subplots_adjust after tight_layout below, not via
@@ -453,14 +476,14 @@ def plot_figure3(df, save_path: Path = None):
     # spacing fixed at axes-creation time and silently falls back to
     # large default margins (a wide blank band above the top panel).
     fig, axes = plt.subplots(
-        4,
+        5,
         1,
-        figsize=(10, 10),
+        figsize=(10, 12.5),
         facecolor=SURFACE,
         sharex=True,
     )
 
-    for ax, (_title, ylabel, series) in zip(axes[:3], panels):
+    for ax, (_title, ylabel, series) in zip(axes[:4], panels):
         ax.set_facecolor(SURFACE)
         for i, (col, label) in enumerate(series):
             x, y = break_on_gaps(df["epoch_utc"], df[col], gap_mask)
@@ -483,7 +506,7 @@ def plot_figure3(df, save_path: Path = None):
         legend.get_frame().set_edgecolor(BASELINE)
 
     # --- Flow: standard (as reported) vs. ambient-equivalent -------------
-    ax_flow = axes[3]
+    ax_flow = axes[4]
     ax_flow.set_facecolor(SURFACE)
 
     x_std, y_std = break_on_gaps(df["epoch_utc"], df["flow_SLPM"], gap_mask)
