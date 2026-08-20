@@ -1,4 +1,4 @@
-# LPC Python
+# LPC Analysis
 
 Scripts for loading LPC optical particle counter (OPC) data, merging in the
 paired RS41 radiosonde record, deriving aerosol concentrations, and plotting
