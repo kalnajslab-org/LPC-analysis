@@ -159,7 +159,7 @@ def add_ambient_volume(
     return df
 
 
-def add_measurement_id(df: pd.DataFrame, gap_break_s: float = 10.0) -> pd.DataFrame:
+def add_measurement_id(df: pd.DataFrame, gap_break_s: float = 60.0) -> pd.DataFrame:
     """Add a "measurement_id" column (0, 1, 2, ...) identifying which
     episodic measurement batch each row belongs to. The instrument
     samples in batches of 30-60 rows separated by multi-minute

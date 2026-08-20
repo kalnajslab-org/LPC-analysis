@@ -28,8 +28,9 @@ Sample Data lives in `Example Files.csv/`, as pairs of CSV files sharing a run n
 - `lpcopc-2.csv` — OPC housekeeping and aerosol bin counts
 - `lpcrs41-2.csv` — RS41 radiosonde pressure/temperature/humidity, sampled ~1 Hz
 
-Both files share the same layout: a header row, a units row (e.g. `[mA]`,
-`[deg]`), then data. `read_lpcopc.py` skips the units row automatically.
+Both files come from TMMonster and share the same layout: a header row, a
+units row (e.g. `[mA]`, `[deg]`), then data. `read_lpcopc.py` skips the
+units row automatically.
 
 The OPC reports 32 aerosol bin-count columns, `hg_*` and `lg_*` (high-gain /
 low-gain channels), named by each bin's *upper* diameter edge in nm (e.g.
@@ -58,9 +59,17 @@ Aerosol concentration (counts per volume) for any bin is then just
 
 ## Figures (`plot_figures.py`)
 
-Run directly (`python3 plot_figures.py`) to regenerate both figures into
-`figures/` and open them in interactive windows, or import `plot_figure1` /
-`plot_figure2` to call them on your own DataFrame.
+Run directly (`python3 plot_figures.py`) to regenerate all three figures
+into `figures/` and open them in interactive windows, or import
+`plot_figure1` / `plot_figure2` / `plot_figure3` to call them on your own
+DataFrame.
+
+Time-series panels across all three figures share a common look: heavy
+box-border spines, bold time-axis (x) tick labels with regular-weight
+value (y) tick labels, and both horizontal and vertical gridlines
+(`_style_spines` / `_style_ticks`). None of the figures carry a
+descriptive title — series/panel identity comes from axis labels,
+legends, and (figure 2) per-panel date/time titles instead.
 
 ### Figure 1 — cumulative concentration + temperature/RH
 
@@ -69,8 +78,10 @@ Run directly (`python3 plot_figures.py`) to regenerate both figures into
 Two stacked panels sharing a time axis:
 
 - **Top:** cumulative aerosol concentration (# cm⁻³) for particles larger
-  than 300, 500, 1000, and 2000 nm — the sum of all bin columns from that
-  diameter rightward, divided by the ambient sampled volume.
+  than each of `CUMULATIVE_THRESHOLDS_NM` (300, 500, 1000, and 2000 nm by
+  default — the single source of truth for which thresholds are plotted
+  and their colors) — the sum of all bin columns from that diameter
+  rightward, divided by the ambient sampled volume.
 - **Bottom** (half height): temperature and relative humidity, on a
   twin y-axis (temperature left/orange, RH right/blue — each axis's ink
   matches its line so identity doesn't depend on a legend).
@@ -84,10 +95,13 @@ instead of drawing a straight line across a period with no data.
 `figures/figure2_differential_distribution*.png`
 
 One bar-histogram subplot per episodic measurement, showing dN/dD (# cm⁻³
-per nm) vs. diameter (log-log axes), titled with that measurement's start
-date/time. For each measurement, dN/dD is computed from the *totals*
-(summed counts over summed sampled volume across the measurement's rows),
-not a row-by-row average.
+per nm) vs. diameter (log-log axes, x-limited to 300-30,000 nm), titled
+with that measurement's start date/time. For each measurement, the bar
+height is computed from the *totals* (summed counts over summed sampled
+volume across the measurement's rows), not a row-by-row average; each bar
+also carries an error bar showing the standard deviation of that bin's
+per-row dN/dD values within the measurement (row-to-row spread, not
+uncertainty on the total-based average).
 
 The panel grid is always 4 columns wide with just enough rows for the
 number of measurements, capped at 24 panels per figure
@@ -107,11 +121,12 @@ is undefined.
 
 `plot_figure3(df, save_path=...)` → `figures/figure3_housekeeping.png`
 
-Four vertically stacked panels sharing a time axis:
+Five vertically stacked panels sharing a time axis:
 
 - **Temperatures** — pump 1, pump 2, laser, PCB, inlet (°C)
 - **Voltages** — PHA 12V, PHA 3.3V, CPU, input (V)
 - **Currents** — pump 1, pump 2, PHA (mA)
+- **Pump PWM** — pump 1, pump 2 duty cycle (#)
 - **Flow** — `flow_SLPM` as reported (standard conditions) alongside its
   ambient-equivalent volumetric rate (`ambient_flow_slpm`), which applies
   the same ideal-gas correction as `add_ambient_volume` directly to the
