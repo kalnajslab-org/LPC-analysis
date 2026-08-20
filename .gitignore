@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Generated outputs (reproducible from the CSVs via read_lpcopc.py / plot_figures.py)
+*.nc
+figures/
