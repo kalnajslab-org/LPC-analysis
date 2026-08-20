@@ -1,6 +1,6 @@
-"""Read an LPC OPC housekeeping/data CSV file into a pandas DataFrame.
+"""Read an LPC OPC housekeeping/data and LPC RS41 CSV file into a pandas DataFrame.
 
-The CSV files have the format:
+The CSV files come from TMMonster and have the format:
     row 1: column names
     row 2: units for each column, e.g. "[mA]", "[deg]"
     row 3+: data

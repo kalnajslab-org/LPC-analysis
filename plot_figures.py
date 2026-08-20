@@ -1,7 +1,7 @@
 """Figures for the LPC OPC data.
 
 Figure 1: time series of cumulative aerosol concentration for particles
-larger than 300, 500, 1000, and 2000 nm.
+larger than 300, 500, 1000, and 2000 nm (configurable).
 
 Figure 2: differential size distribution (dN/dD), averaged over each
 episodic measurement, one subplot per measurement in a dynamic grid.
@@ -35,18 +35,14 @@ OUT_DIR = Path(__file__).parent / "figures"
 # Measurements are separated by hibernation gaps of several minutes; a gap
 # longer than this (seconds) breaks the plotted line rather than
 # connecting straight across the hibernation period.
-GAP_BREAK_S = 10.0
+GAP_BREAK_S = 60.0
+
+# Diameter thresholds for figure 1's cumulative-concentration lines — the
+# single source of truth; everything that needs these values (the plotted
+# series, their colors) derives from this list.
+CUMULATIVE_THRESHOLDS_NM = [300, 500, 1000, 2000]
 
 # Categorical palette (light mode), fixed order — dataviz skill reference palette.
-COLORS = {
-    300: "#2a78d6",   # blue
-    500: "#eb6834",   # orange
-    1000: "#1baf7a",  # aqua
-    2000: "#eda100",  # yellow
-}
-
-# Same palette, as an ordered list for figures with an arbitrary number of
-# series (assign in this fixed order — never cycle/re-sort by rank).
 CATEGORICAL_COLORS = [
     "#2a78d6",  # 1 blue
     "#eb6834",  # 2 orange
@@ -57,6 +53,10 @@ CATEGORICAL_COLORS = [
     "#4a3aa7",  # 7 violet
     "#e34948",  # 8 red
 ]
+
+# Figure 1's cumulative-threshold series, colored in the palette's fixed
+# order.
+COLORS = dict(zip(CUMULATIVE_THRESHOLDS_NM, CATEGORICAL_COLORS))
 
 # Reference conditions the flow meter reports flow_SLPM at — must match
 # add_ambient_volume's defaults in read_lpcopc.py.
@@ -153,7 +153,7 @@ def _style_ticks(ax, axis="both", color=INK_PRIMARY, fontweight="bold"):
 
 
 def plot_figure1(df, save_path: Path = None):
-    diameters = [300, 500, 1000, 2000]
+    diameters = CUMULATIVE_THRESHOLDS_NM
 
     # Rows starting a new batch after a hibernation gap (used only to
     # break the plotted line; the data values themselves are unaffected).
